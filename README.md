@@ -8,8 +8,45 @@ generations with Monte-Carlo sampling (K proposals per generation),
 elitist selection, and stagnation reboots.
 
 The scaffold is task-agnostic: swap the proposer prompt and the
-evaluator, keep the loop. The concrete task shipped here is generating
-Sudoku puzzles at a target difficulty level.
+evaluator, keep the loop. Two tasks ship out of the box: Sudoku
+puzzle generation and Max-Cut optimization.
+
+## Why this works for algorithm design
+
+Greedy algos are a natural fit. The loop already works this way — the
+LLM writes a greedy algorithm in gen 0, the evaluator scores it, and
+the feedback tells it how far off it is. The LLM then rewrites the
+code to use a better approach. We saw this with Max-Cut: the LLM
+started with random partitions + local search and found the optimal
+cut on the first try.
+
+Algorithm swapping through iterations happens organically. The LLM
+receives its previous code + evaluator feedback like "your greedy
+approach scored 60%, try local search or simulated annealing." It can
+completely rewrite the algorithm — nothing constrains it to incremental
+edits. In practice we've seen:
+
+- Gen 0: random/naive approach
+- Gen 1: greedy with the same structure
+- Gen 2: completely different algorithm (e.g., switching from greedy
+  to backtracking with pruning)
+
+The feedback loop is what drives it. If the evaluator says "your O(n!)
+brute force timed out" the LLM switches to a polynomial approximation.
+If it says "your greedy gets 70% but target is 90%" the LLM might
+switch to simulated annealing or branch-and-bound.
+
+Good candidate problems for this pattern:
+
+- **Knapsack** (greedy → DP → branch-and-bound)
+- **TSP** (nearest neighbor → 2-opt → simulated annealing)
+- **Graph coloring** (greedy → backtracking → tabu search)
+- **Bin packing** (first-fit → best-fit → metaheuristics)
+
+The key requirement is a fast deterministic evaluator — if you can
+score the output in milliseconds, the loop can iterate quickly. The
+10-second execution timeout already pressures the LLM away from brute
+force toward smarter algorithms.
 
 ## The loop
 
