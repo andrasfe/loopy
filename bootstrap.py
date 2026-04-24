@@ -40,6 +40,7 @@ def _score_summary(s: evaluator.Score) -> str:
 
 
 def run(
+    task_path: Path,
     target: int,
     k: int,
     max_generations: int,
@@ -47,6 +48,7 @@ def run(
     seed: Optional[int],
     log_path: Path,
 ) -> Optional[evaluator.Score]:
+    proposer.init(task_path)
     if seed is not None:
         random.seed(seed)
     settings = __import__("config").load()
@@ -59,11 +61,12 @@ def run(
 
     record({
         "event": "start",
+        "task": str(task_path),
         "model": settings.model,
         "target": target, "k": k, "max_generations": max_generations, "keep": keep,
         "time": time.time(),
     })
-    print(f"[loopy] model={settings.model}  target={target}/10  K={k}  keep={keep}")
+    print(f"[loopy] task={task_path.name}  model={settings.model}  target={target}/10  K={k}  keep={keep}")
 
     population: list[evaluator.Score] = []
     total_tokens_in = 0
@@ -93,7 +96,6 @@ def run(
                         parent_code=parent.code,
                         parent_feedback=parent.feedback,
                         parent_exec_error=parent.exec_error,
-                        parent_clues=parent.num_clues,
                         parent_difficulty=parent.difficulty,
                         k=per_parent,
                         target=target,
@@ -190,7 +192,8 @@ def run(
 
 
 def main():
-    ap = argparse.ArgumentParser(description="MC-sampled Sudoku generator (code-generation loop).")
+    ap = argparse.ArgumentParser(description="Self-improving LLM code generation loop.")
+    ap.add_argument("--task", type=str, default="tasks/sudoku.md", help="path to task prompt .md file")
     ap.add_argument("--target", type=int, default=7, help="target difficulty 1-10")
     ap.add_argument("-k", type=int, default=6, help="proposals per generation")
     ap.add_argument("--keep", type=int, default=2, help="parents kept between generations")
@@ -202,6 +205,7 @@ def main():
     log_path = Path(args.log) if args.log else Path("runs") / f"run-{int(time.time())}.jsonl"
 
     result = run(
+        task_path=Path(args.task),
         target=args.target,
         k=args.k,
         max_generations=args.max_gen,

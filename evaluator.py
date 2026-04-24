@@ -9,7 +9,14 @@ from typing import Optional
 
 import executor
 import solver
-from proposer import _target_clues as target_clue_count
+
+TARGET_CLUE_COUNT = {
+    1: 52, 2: 46, 3: 40, 4: 34, 5: 30, 6: 27, 7: 25, 8: 23, 9: 22, 10: 21,
+}
+
+
+def target_clue_count(target: int) -> int:
+    return TARGET_CLUE_COUNT.get(target, 25)
 
 
 @dataclass
