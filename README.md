@@ -143,6 +143,38 @@ Winning puzzle (difficulty 7/10, 25 clues):
 8 . . | . 2 . | . . .
 ```
 
+### openai/gpt-5-nano — self-contained code gen
+
+Target difficulty 7/10, K=4, keep=2, max-gen=8.
+
+Converged at generation 3. Total tokens: 24,418 in + 134,781 out = 159,199.
+GPT-5 Nano is a reasoning model — output tokens are dominated by hidden
+thinking (~35K out per generation). Produced working code from gen 0 with
+bitmask-based constraint tracking. Iterated difficulty 5 → 5 → 5 → 7.
+
+```
+gen  0 fresh   exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=28  tok=1768+35748   dt=67.5s
+gen  1 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=6970+27406   dt=111.7s
+gen  2 mutate  exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=25  tok=7870+34607   dt=171.6s
+gen  3 mutate  exec=4/4  valid=4  unique=4  on-target=1  best=diff=7  clues=24  tok=7810+37020   dt=119.3s
+```
+
+Winning puzzle (difficulty 7/10, 24 clues):
+
+```
+5 . . | . 8 . | 3 4 .
+. . . | . 5 . | 1 . .
+. . . | 2 . 6 | . . .
+---------------------
+. . . | 5 . . | 4 9 .
+. . . | 9 3 . | . . 6
+9 . 8 | . . . | . . 1
+---------------------
+. . . | . . 3 | 8 1 .
+4 1 . | . 2 . | 5 . .
+. . . | . . . | . . .
+```
+
 ### moonshotai/kimi-k2.6 — self-contained code gen
 
 Target difficulty 7/10, K=4, keep=2, max-gen=8.
@@ -200,12 +232,14 @@ Best puzzle (difficulty 3/10, 33 clues, solved with naked singles only):
 | v2 (code, w/ solver) | gemini-flash-lite | 7 | Converged (7) | 2 | ~12K | ~30s |
 | v2 (code, w/ solver) | kimi-k2.6 | 7 | Converged (7) | 0 | ~40K | ~491s |
 | v3 (self-contained) | gemini-flash-lite | 7 | Converged (7) | 6 | 43,343 | ~121s |
+| v3 (self-contained) | gpt-5-nano | 7 | Converged (7) | 3 | 159,199 | ~470s |
 | v3 (self-contained) | kimi-k2.6 | 7 | Killed (best: 10) | 0 | 40,300+ | 601s+ |
 
 Key findings:
 - Self-contained mode (v3) is harder — gemini needed 6 gens vs 2 with solver access
-- Kimi's reasoning tokens (38K out in gen 0) make it impractical for iterative loops
-- Gemini flash-lite is 10-100x more token-efficient per generation
+- Reasoning models (gpt-5-nano, kimi-k2.6) use 15-35K output tokens per gen (hidden thinking)
+- Gemini flash-lite is the most token-efficient: 43K total vs gpt-5-nano's 159K
+- GPT-5 Nano converges faster (3 gens vs 6) but at ~4x the token cost
 
 ## Honest limitations
 
