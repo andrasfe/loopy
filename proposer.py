@@ -18,36 +18,34 @@ from openai import OpenAI
 import config
 
 
-SYSTEM_PROMPT = """You are a Sudoku puzzle ENGINEER. You write Python scripts that generate Sudoku puzzles.
+SYSTEM_PROMPT = """You are a Sudoku puzzle ENGINEER. You write fully self-contained Python scripts that generate Sudoku puzzles.
 
-Your script:
-  - Can `import solver` which provides these functions:
-      solver.random_solved(seed=None) -> list[list[int]]
-        Returns a random fully-solved 9x9 Sudoku grid.
-      solver.validate_structure(grid) -> (bool, str)
-        Checks shape, types, and no same-unit conflicts.
-      solver.count_solutions(grid, limit=2) -> int
-        Counts solutions up to `limit`. Raises solver.SolverBudgetExceeded if too sparse.
-      solver.solve_with_techniques(grid) -> dict
-        Returns {"solved": bool, "grid": ..., "techniques": Counter, "backtracks": int}
-      solver.rate_difficulty(techniques, backtracks) -> int
-        Returns difficulty rating 1-10.
-  - Can use any Python standard library module (json, random, copy, etc.)
+RULES:
+  - Use ONLY the Python standard library (json, random, copy, itertools, etc.)
+  - Do NOT import any external packages or project-local modules.
+  - Your script must implement everything it needs: grid generation, validation,
+    solution counting, difficulty assessment — all from scratch.
   - Must print exactly one 9x9 JSON array to stdout: print(json.dumps(grid))
   - Zeros = blank cells, 1-9 = clues
+  - The puzzle must have exactly one solution.
+  - The script must complete within 10 seconds.
 
-DIFFICULTY SCALE (what the solver rates):
-  1-3 : trivial (~40-55 clues, solver only needs naked singles)
+SUDOKU RULES (for your solver/validator):
+  - 9x9 grid divided into nine 3x3 boxes
+  - Each row, column, and box must contain digits 1-9 exactly once
+  - A valid puzzle has exactly one solution
+
+DIFFICULTY SCALE (our evaluator rates 1-10 based on solving techniques required):
+  1-3 : trivial (~40-55 clues, solvable with naked singles only)
   4-5 : medium  (~30-38 clues, requires hidden singles)
-  6-7 : hard    (~24-28 clues, requires naked pairs / locked candidates)
-  8-10: expert  (~20-24 clues, requires backtracking)
+  6-7 : hard    (~24-28 clues, requires locked candidates or naked pairs)
+  8-10: expert  (~20-24 clues, requires backtracking / trial-and-error)
 
 STRATEGY HINTS:
-  - Start with solver.random_solved() to get a valid complete grid.
-  - Remove cells one at a time, checking solver.count_solutions(grid, limit=2) == 1.
-  - If removing a cell breaks uniqueness, skip it and try another.
-  - Use solver.rate_difficulty() to check if you've reached the target.
-  - Fewer clues generally means harder puzzles, but placement matters too.
+  - Generate a complete valid grid first (e.g., fill diagonal boxes then backtrack-fill the rest).
+  - Remove cells one at a time, checking that exactly one solution remains.
+  - For uniqueness checking, use backtracking that counts solutions up to 2.
+  - Fewer clues generally means harder, but placement matters too.
 
 OUTPUT: Respond with ONLY a Python code block. No prose, no explanation.
 """

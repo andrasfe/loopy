@@ -142,11 +142,14 @@ def run(
         unique_count = sum(1 for s in scored if s.unique)
         on_target = sum(1 for s in scored if s.unique and s.difficulty == target)
         exec_ok = sum(1 for s in scored if not s.exec_error)
+        gen_tokens_in = sum(p.tokens_in for p in proposals)
+        gen_tokens_out = sum(p.tokens_out for p in proposals)
         print(
             f"[gen {gen:>2} {mode:<6}]  "
             f"exec={exec_ok}/{len(scored)}  valid={valid_count}  unique={unique_count}  "
             f"on-target={on_target}  "
             f"best={_score_summary(population[0])}  "
+            f"tok={gen_tokens_in}+{gen_tokens_out}  "
             f"dt={dt:.1f}s"
         )
         record({
@@ -162,12 +165,17 @@ def run(
         })
 
         if population[0].unique and population[0].difficulty == target:
-            print(f"\n[loopy] Converged at generation {gen}. Target difficulty {target} hit.")
-            record({"event": "converged", "gen": gen, "grid": population[0].grid})
+            print(
+                f"\n[loopy] Converged at generation {gen}. Target difficulty {target} hit."
+                f"\n[loopy] Total tokens: {total_tokens_in} in + {total_tokens_out} out = {total_tokens_in + total_tokens_out}"
+            )
+            record({"event": "converged", "gen": gen, "grid": population[0].grid,
+                     "total_tokens_in": total_tokens_in, "total_tokens_out": total_tokens_out})
             log.close()
             return population[0]
 
     print(f"\n[loopy] Max generations reached without exact convergence.")
+    print(f"[loopy] Total tokens: {total_tokens_in} in + {total_tokens_out} out = {total_tokens_in + total_tokens_out}")
     if best_ever:
         print(f"Best ever: {_score_summary(best_ever)}")
     record({
@@ -175,6 +183,7 @@ def run(
         "best_ever_fitness": best_ever.fitness if best_ever else None,
         "best_ever_difficulty": best_ever.difficulty if best_ever else None,
         "best_ever_grid": best_ever.grid if best_ever else None,
+        "total_tokens_in": total_tokens_in, "total_tokens_out": total_tokens_out,
     })
     log.close()
     return best_ever

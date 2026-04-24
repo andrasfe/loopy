@@ -35,8 +35,9 @@ code to move closer to the target difficulty.
 
 The LLM is rewriting its own prior code, not starting fresh every round.
 The evaluator is entirely deterministic; the LLM never judges its own
-success. The generated code can `import solver` to use the project's
-solver API (random_solved, count_solutions, rate_difficulty, etc.).
+success. The generated code must be fully self-contained — it runs in
+an isolated temp directory with only the Python standard library
+available. No pre-built solver or helpers are provided.
 
 The same scaffold works for any task where candidates can be scored
 cheaply and programmatically. Swap the proposer prompt and the evaluator,
@@ -60,14 +61,15 @@ keep the loop.
    agent — the artifact being iterated is code, and the LLM learns to
    write better generation algorithms through feedback.
 
-2. **Code has access to the solver API.** The generated code can
-   `import solver` and use `random_solved()`, `count_solutions()`,
-   `rate_difficulty()`, etc. This makes the task tractable — the LLM
-   doesn't need to reinvent constraint propagation.
+2. **Nothing pre-coded.** The generated code must implement everything
+   from scratch: grid generation, validation, solution counting,
+   difficulty heuristics. Only the Python standard library is available.
+   The evaluator (solver.py) is used only by the harness to score output.
 
-3. **Sandboxed execution.** Generated code runs in a subprocess with a
-   10-second timeout. Process isolation prevents the LLM code from
-   corrupting the orchestrator's state.
+3. **Isolated execution.** Generated code runs in an isolated temp
+   directory with a 10-second timeout. No project-local modules are
+   importable. Process isolation prevents the LLM code from corrupting
+   the orchestrator's state.
 
 4. **Incremental fitness tiers.** Fitness rewards progress:
    code runs (-150 if crash) → grid extracted (-100) → valid (-80) →
@@ -105,63 +107,54 @@ won't appear until exit.
 
 ## Results
 
-### google/gemini-3.1-flash-lite-preview — code-generation mode
+All results below use self-contained code generation: the LLM writes
+everything from scratch (grid generation, validation, solution counting)
+using only the Python standard library. No pre-built solver is available.
+
+### google/gemini-3.1-flash-lite-preview — self-contained code gen
 
 Target difficulty 7/10, K=4, keep=2, max-gen=8.
 
-Converged at generation 2. All proposals produced valid, executable code
-from generation 0. The LLM iterated from difficulty 5 → 6 → 7 across
-three generations.
+Converged at generation 6. Total tokens: 24,826 in + 18,517 out = 43,343.
 
 ```
-gen  0 fresh   exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=25  fit=-2   dt=3.5s
-gen  1 mutate  exec=4/4  valid=4  unique=4  on-target=0  best=diff=6  clues=25  fit=-1   dt=14.4s
-gen  2 mutate  exec=4/4  valid=4  unique=4  on-target=2  best=diff=7  clues=25  fit=0    dt=11.8s
+gen  0 fresh   exec=4/4  valid=4  unique=4  on-target=0  best=diff=6  clues=25  tok=1874+2371   dt=7.4s
+gen  1 mutate  exec=4/4  valid=4  unique=4  on-target=0  best=diff=6  clues=25  tok=4676+2784   dt=15.1s
+gen  2 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=6  clues=25  tok=4674+2643   dt=26.2s
+gen  3 reboot  exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=25  tok=1874+2553   dt=17.8s
+gen  4 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=4926+2895   dt=31.2s
+gen  5 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=4928+2854   dt=18.7s
+gen  6 reboot  exec=4/4  valid=4  unique=4  on-target=1  best=diff=7  clues=25  tok=1874+2417   dt=4.7s
 ```
 
 Winning puzzle (difficulty 7/10, 25 clues):
 
 ```
-. . . | 6 9 . | . 3 .
-4 . 1 | . . . | 8 . .
-. . . | . . . | 6 . .
+. 5 . | 2 3 . | . 8 7
+. . . | . . 6 | . . .
+. 3 . | 5 4 . | . . 6
 ---------------------
-. . . | . 2 . | . . 3
-1 . . | . . . | . 8 7
-8 . 3 | 5 . 7 | 9 2 1
+9 . 2 | . 6 . | . . .
+. . . | 9 . . | . . 1
+4 6 . | . . . | . . 3
 ---------------------
-. . . | . 3 . | . 4 6
-5 . . | . . . | . . .
-. . 8 | . . . | 2 . .
+. . 7 | . . . | . 4 .
+6 . 9 | . . 1 | . . .
+8 . . | . 2 . | . . .
 ```
 
-### moonshotai/kimi-k2.6 — code-generation mode
+### moonshotai/kimi-k2.6 — self-contained code gen
 
 Target difficulty 7/10, K=4, keep=2, max-gen=8.
 
-Converged at generation 0. All 4 proposals produced working code that
-hit difficulty 7 on the first try. The reasoning model wrote a
-sophisticated two-phase removal algorithm with a 300-attempt retry loop.
-Slow (491s for gen 0) but accurate.
+Killed after gen 0 due to excessive token usage. Gen 0 alone consumed
+1,790 in + 38,510 out = 40,300 tokens (mostly extended reasoning) and
+took 601s. The code it generated produced difficulty 10 (too hard) — it
+would have needed further iterations to dial down to 7.
 
 ```
-gen  0 fresh   exec=4/4  valid=4  unique=4  on-target=4  best=diff=7  clues=25  fit=0    dt=491.2s
-```
-
-Winning puzzle (difficulty 7/10, 25 clues):
-
-```
-. . . | . . 8 | . . 4
-4 . 9 | . 1 . | . . 6
-. . . | 2 . . | 7 . .
----------------------
-2 . . | . 4 1 | . . .
-. . . | . . 9 | . 7 5
-. . 4 | 6 . . | . 3 .
----------------------
-. 7 . | . . . | . . .
-6 . . | . . 3 | 5 . 1
-. 8 . | . . . | . 6 7
+gen  0 fresh   exec=3/4  valid=3  unique=3  on-target=0  best=diff=10  clues=25  tok=1790+38510  dt=601.1s
+(killed — token budget exceeded)
 ```
 
 ### google/gemini-3.1-flash-lite-preview — v1 data-generation mode
@@ -199,17 +192,20 @@ Best puzzle (difficulty 3/10, 33 clues, solved with naked singles only):
 . . 9 | . . 2 | 8 . 1
 ```
 
-### Comparison: data-generation vs code-generation mode
+### Comparison
 
-With gemini-3.1-flash-lite-preview targeting difficulty 7, v1 failed
-after 8 generations (best: difficulty 3). The code-generation v2
-converged in 2 generations with the same model.
+| Mode | Model | Target | Result | Gens | Total Tokens | Time |
+|---|---|---|---|---|---|---|
+| v1 (grid data) | gemini-flash-lite | 7 | Failed (best: 3) | 8 (max) | n/a | ~24s |
+| v2 (code, w/ solver) | gemini-flash-lite | 7 | Converged (7) | 2 | ~12K | ~30s |
+| v2 (code, w/ solver) | kimi-k2.6 | 7 | Converged (7) | 0 | ~40K | ~491s |
+| v3 (self-contained) | gemini-flash-lite | 7 | Converged (7) | 6 | 43,343 | ~121s |
+| v3 (self-contained) | kimi-k2.6 | 7 | Killed (best: 10) | 0 | 40,300+ | 601s+ |
 
-| Mode | Model | Target | Result | Generations |
-|---|---|---|---|---|
-| v1 (grid data) | gemini-flash-lite | 7 | Failed (best: 3) | 8 (max) |
-| v2 (code gen) | gemini-flash-lite | 7 | Converged (7) | 2 |
-| v2 (code gen) | kimi-k2.6 | 7 | Converged (7) | 0 |
+Key findings:
+- Self-contained mode (v3) is harder — gemini needed 6 gens vs 2 with solver access
+- Kimi's reasoning tokens (38K out in gen 0) make it impractical for iterative loops
+- Gemini flash-lite is 10-100x more token-efficient per generation
 
 ## Honest limitations
 
@@ -217,7 +213,7 @@ converged in 2 generations with the same model.
 - The difficulty rating is a hand-picked ladder (naked_single →
   hidden_single → locked_candidates → naked_pair → backtrack). It's
   not the same as any published rating, but it's internally consistent.
-- Generated code runs unsandboxed beyond a timeout. For production use,
-  add network isolation and resource limits.
+- Generated code runs in an isolated temp dir with a timeout, but
+  without network or filesystem sandboxing.
 - Reasoning models (kimi-k2.6) produce better first-attempt code but
-  are 15-20x slower per generation than flash models.
+  consume 15x more tokens per generation due to extended thinking.

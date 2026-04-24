@@ -22,11 +22,11 @@ Sudoku puzzles at a specified difficulty level.
 
 **Output:** A Python script that prints a 9x9 JSON grid to stdout.
 
-**Capabilities:** The generated code can `import solver` to access:
-- `solver.random_solved(seed)` — generate a complete solved grid
-- `solver.count_solutions(grid, limit)` — check uniqueness
-- `solver.solve_with_techniques(grid)` — run technique-tiered solver
-- `solver.rate_difficulty(techniques, backtracks)` — rate 1-10
+**Capabilities:** The generated code must be fully self-contained,
+using only the Python standard library. It must implement everything
+from scratch: grid generation, validation, solution counting, and
+difficulty assessment. No project-local modules (solver.py, etc.)
+are available — the executor runs code in an isolated temp directory.
 
 **Modes:**
 - `fresh` — cold start, writes code from scratch
