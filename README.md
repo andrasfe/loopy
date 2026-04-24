@@ -287,18 +287,25 @@ Best puzzle (difficulty 3/10, 33 clues, solved with naked singles only):
 | v1 (grid data) | gemini-flash-lite | 7 | Failed (best: 3) | 8 (max) | n/a | ~24s |
 | v2 (code, w/ solver) | gemini-flash-lite | 7 | Converged (7) | 2 | ~12K | ~30s |
 | v2 (code, w/ solver) | kimi-k2.6 | 7 | Converged (7) | 0 | ~40K | ~491s |
-| v3 (self-contained) | gemini-flash-lite | 7 | Converged (7) | 6 | 43,343 | ~121s |
-| v3 (self-contained) | gpt-5-nano | 7 | Converged (7) | 3 | 159,199 | ~470s |
-| v3 (self-contained) | grok-4.1-fast | 7 | Converged (7) | 7 | 272,555 | ~1018s |
-| v3 (self-contained) | ling-2.6-flash | 7 | Failed (best: 5) | 8 (max) | 90,578 | ~321s |
-| v3 (self-contained) | kimi-k2.6 | 7 | Killed (best: 10) | 0 | 40,300+ | 601s+ |
+| v3 (self-contained) | openai/gpt-oss-20b | 7 | Converged (7) | 0 | 9,422 |
+| v3 (self-contained) | gemma-4-26b | 7 | Converged (7) | 4 | 42,456 |
+| v3 (self-contained) | gemini-flash-lite | 7 | Converged (7) | 6 | 43,343 |
+| v3 (self-contained) | qwen/qwen-turbo | 7 | Converged (7) | 7 | 61,450 |
+| v3 (self-contained) | gpt-5-nano | 7 | Converged (7) | 3 | 159,199 |
+| v3 (self-contained) | grok-4.1-fast | 7 | Converged (7) | 7 | 272,555 |
+| v3 (self-contained) | ling-2.6-flash | 7 | Failed (best: 5) | 8 (max) | 90,578 |
+| v3 (self-contained) | liquid/lfm-2-24b | 7 | Failed (best: 3) | 8 (max) | 74,335 |
+| v3 (self-contained) | amazon/nova-micro | 7 | Failed (best: 1) | 8 (max) | 54,378 |
+| v3 (self-contained) | mistralai/mistral-nemo | 7 | Failed (best: 0) | 8 (max) | 51,231 |
+| v3 (self-contained) | ibm-granite/granite-micro | 7 | Failed (best: 0) | 8 (max) | 48,549 |
+| v3 (self-contained) | kimi-k2.6 | 7 | Killed (best: 10) | 0 | 40,300+ |
 
 Key findings:
-- Self-contained mode (v3) is harder — gemini needed 6 gens vs 2 with solver access
-- Gemini flash-lite is the most token-efficient: 43K total to converge
+- **GPT-OSS-20B is the champion**: converged gen 0 with only 9K tokens — non-reasoning, fast, efficient
+- Gemma 4 26B is the second best non-reasoning model: 42K tokens, gen 4
 - Reasoning models (gpt-5-nano, grok, kimi) use 15-35K output tokens per gen (hidden thinking)
-- Grok 4.1 Fast converges but at 6x the token cost of gemini (272K vs 43K)
-- Non-reasoning models that are too small (ling-2.6-flash) can't push past difficulty 5
+- Many small/cheap models fail entirely — never produce valid Sudoku code
+- The difficulty-5-to-7 gap is the hardest: most models plateau at difficulty 5-6
 
 ## Honest limitations
 
