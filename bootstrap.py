@@ -1,18 +1,15 @@
-"""Monte-Carlo loop: sample K puzzles per generation, keep top parents, iterate."""
+"""Monte-Carlo loop: LLM writes code that generates puzzles, evaluator scores the output, iterate."""
 from __future__ import annotations
 
 import argparse
 import json
 import random
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
-import config
 import evaluator
 import proposer
-import solver
 
 
 def _format_grid(grid: list[list[int]]) -> str:
@@ -30,6 +27,8 @@ def _format_grid(grid: list[list[int]]) -> str:
 
 
 def _score_summary(s: evaluator.Score) -> str:
+    if s.exec_error:
+        return f"EXEC-ERR     fit={s.fitness:>5}"
     if not s.valid:
         return f"INVALID      fit={s.fitness:>5} clues={s.num_clues}"
     if not s.unique:
@@ -50,12 +49,9 @@ def run(
 ) -> Optional[evaluator.Score]:
     if seed is not None:
         random.seed(seed)
-    settings = config.load()
+    settings = __import__("config").load()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("w")
-
-    # Fixed seed grid for this whole run: every proposal masks this same solved Sudoku.
-    seed_grid = solver.random_solved(seed=seed)
 
     def record(event: dict):
         log.write(json.dumps(event, default=str) + "\n")
@@ -65,41 +61,38 @@ def run(
         "event": "start",
         "model": settings.model,
         "target": target, "k": k, "max_generations": max_generations, "keep": keep,
-        "seed_grid": seed_grid,
         "time": time.time(),
     })
     print(f"[loopy] model={settings.model}  target={target}/10  K={k}  keep={keep}")
 
-    # Generation 0: cold sampling
     population: list[evaluator.Score] = []
     total_tokens_in = 0
     total_tokens_out = 0
     best_ever: Optional[evaluator.Score] = None
     stagnant_gens = 0
     prev_best_fitness: float = float("-inf")
-    STAGNATION_PATIENCE = 2  # if best doesn't improve for this many gens, reset parents
+    STAGNATION_PATIENCE = 2
 
     for gen in range(max_generations):
         t0 = time.time()
-        if gen == 0 or not population or population[0].grid is None:
-            proposals = proposer.fresh(seed_grid=seed_grid, k=k, target=target)
+        if gen == 0 or not population or population[0].code is None:
+            proposals = proposer.fresh(k=k, target=target)
             mode = "fresh"
         elif stagnant_gens >= STAGNATION_PATIENCE:
-            # Escape local optimum: abandon parents, generate fresh, keep best-ever as memory.
-            proposals = proposer.fresh(seed_grid=seed_grid, k=k, target=target)
+            proposals = proposer.fresh(k=k, target=target)
             mode = "reboot"
             population = []
             stagnant_gens = 0
-            prev_best_fitness = float("-inf")  # let the new lineage be judged fresh
+            prev_best_fitness = float("-inf")
         else:
             per_parent = max(1, k // len(population))
             proposals = []
             for parent in population:
                 proposals.extend(
                     proposer.mutate(
-                        seed_grid=seed_grid,
-                        parent_grid=parent.grid,
+                        parent_code=parent.code,
                         parent_feedback=parent.feedback,
+                        parent_exec_error=parent.exec_error,
                         parent_clues=parent.num_clues,
                         parent_difficulty=parent.difficulty,
                         k=per_parent,
@@ -114,19 +107,27 @@ def run(
             total_tokens_out += p.tokens_out
             if p.error:
                 scored.append(evaluator.Score(
-                    grid=None, valid=False, unique=False, solvable=False,
+                    code=None, grid=None, valid=False, unique=False, solvable=False,
                     difficulty=0, num_clues=0,
                     feedback=f"API error: {p.error}", raw="",
+                    exec_error=f"API error: {p.error}",
                 ))
                 continue
-            scored.append(evaluator.evaluate(p.text, target_difficulty=target))
+            if p.code is None:
+                scored.append(evaluator.Score(
+                    code=None, grid=None, valid=False, unique=False, solvable=False,
+                    difficulty=0, num_clues=0,
+                    feedback="Could not extract Python code from LLM response.",
+                    raw=p.text,
+                    exec_error="No code extracted",
+                ))
+                continue
+            scored.append(evaluator.evaluate_code(p.code, target_difficulty=target))
 
-        # Merge into population and keep top-`keep`.
         combined = population + scored
         combined.sort(key=lambda s: s.fitness, reverse=True)
         population = combined[:keep]
 
-        # Track best + stagnation
         gen_best = max(scored, key=lambda s: s.fitness) if scored else None
         if gen_best and (best_ever is None or gen_best.fitness > best_ever.fitness):
             best_ever = gen_best
@@ -140,9 +141,10 @@ def run(
         valid_count = sum(1 for s in scored if s.valid)
         unique_count = sum(1 for s in scored if s.unique)
         on_target = sum(1 for s in scored if s.unique and s.difficulty == target)
+        exec_ok = sum(1 for s in scored if not s.exec_error)
         print(
             f"[gen {gen:>2} {mode:<6}]  "
-            f"valid={valid_count}/{len(scored)}  unique={unique_count}  "
+            f"exec={exec_ok}/{len(scored)}  valid={valid_count}  unique={unique_count}  "
             f"on-target={on_target}  "
             f"best={_score_summary(population[0])}  "
             f"dt={dt:.1f}s"
@@ -150,7 +152,8 @@ def run(
         record({
             "event": "generation",
             "gen": gen, "mode": mode,
-            "valid": valid_count, "unique": unique_count, "on_target": on_target,
+            "exec_ok": exec_ok, "valid": valid_count,
+            "unique": unique_count, "on_target": on_target,
             "best_fitness": population[0].fitness,
             "best_difficulty": population[0].difficulty,
             "best_grid": population[0].grid,
@@ -178,7 +181,7 @@ def run(
 
 
 def main():
-    ap = argparse.ArgumentParser(description="MC-sampled Sudoku generator.")
+    ap = argparse.ArgumentParser(description="MC-sampled Sudoku generator (code-generation loop).")
     ap.add_argument("--target", type=int, default=7, help="target difficulty 1-10")
     ap.add_argument("-k", type=int, default=6, help="proposals per generation")
     ap.add_argument("--keep", type=int, default=2, help="parents kept between generations")
@@ -204,8 +207,14 @@ def main():
         print(f"Techniques: {result.techniques}  Backtracks: {result.backtracks}")
         print()
         print(_format_grid(result.grid))
+        if result.code:
+            print("\n--- Winning code ---")
+            print(result.code)
     else:
         print("No valid unique puzzle found.")
+        if result and result.code:
+            print("\n--- Best code so far ---")
+            print(result.code)
     print(f"\nLog: {log_path}")
 
 

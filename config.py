@@ -8,7 +8,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ENV_PATH = Path(__file__).resolve().parent.parent / "specter" / ".env"
+LOCAL_ENV_PATH = Path(__file__).resolve().parent / ".env"
 load_dotenv(ENV_PATH)
+load_dotenv(LOCAL_ENV_PATH, override=True)
 
 
 @dataclass(frozen=True)
