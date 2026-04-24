@@ -96,6 +96,7 @@ is fully self-contained (standard library only).
 | qwen/qwen-turbo | Converged (7) | 7 | 61,450 |
 | openai/gpt-5-nano | Converged (7) | 3 | 159,199 |
 | x-ai/grok-4.1-fast | Converged (7) | 7 | 272,555 |
+| nvidia/nemotron-nano-9b-v2 | Failed (best: 5) | 8 | 352,498 |
 | inclusionai/ling-2.6-flash | Failed (best: 5) | 8 | 90,578 |
 | liquid/lfm-2-24b-a2b | Failed (best: 3) | 8 | 74,335 |
 | amazon/nova-micro-v1 | Failed (best: 1) | 8 | 54,378 |
