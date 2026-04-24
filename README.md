@@ -1,10 +1,15 @@
 # loopy
 
-A recursive self-rewriting agent that converges on a goal by iterating
-proposal → evaluation → rewrite. The LLM writes **Python code** that
-generates Sudoku puzzles; the evaluator executes the code, scores the
-output puzzle, and feeds metrics back. The LLM then rewrites its own
-code to move closer to the target difficulty.
+A generic scaffold for self-improving LLM agents. Given a problem
+statement and a deterministic evaluator, the LLM writes code to solve
+the problem, the evaluator scores the output and produces feedback, and
+the LLM rewrites its own code to improve. The loop runs for N
+generations with Monte-Carlo sampling (K proposals per generation),
+elitist selection, and stagnation reboots.
+
+The scaffold is task-agnostic: swap the proposer prompt and the
+evaluator, keep the loop. The concrete task shipped here is generating
+Sudoku puzzles at a target difficulty level.
 
 ## The loop
 
@@ -16,15 +21,13 @@ code to move closer to the target difficulty.
                                │                       evaluator feedback
                                ▼
    ┌─────────────── EXECUTOR (subprocess) ─────────┐
-   │ runs LLM-generated code in sandboxed process  │
-   │ captures stdout (the 9x9 grid)                │
+   │ runs LLM-generated code in isolated sandbox   │
+   │ captures stdout                               │
    └────────────────────────────────────────────────┘
                                │
                                ▼
-   ┌─────────────── EVALUATOR (code) ───────────┐
-   │ validates structure, counts solutions,     │
-   │ runs technique-tiered solver, rates 1-10   │
-   │ produces imperative feedback               │
+   ┌─────────────── EVALUATOR (deterministic) ──┐
+   │ scores output, produces imperative feedback │
    └────────────────────────────────────────────┘
                                │
                                ▼
@@ -33,55 +36,39 @@ code to move closer to the target difficulty.
             on target? → done
 ```
 
-The LLM is rewriting its own prior code, not starting fresh every round.
-The evaluator is entirely deterministic; the LLM never judges its own
-success. The generated code must be fully self-contained — it runs in
-an isolated temp directory with only the Python standard library
-available. No pre-built solver or helpers are provided.
-
-The same scaffold works for any task where candidates can be scored
-cheaply and programmatically. Swap the proposer prompt and the evaluator,
-keep the loop.
+The LLM rewrites its own prior code each generation. The evaluator is
+entirely deterministic — the LLM never judges its own success. Generated
+code must be fully self-contained (only the Python standard library is
+available). No pre-built solver or helpers are provided.
 
 ## Architecture
 
 | File | Role |
 |---|---|
 | `bootstrap.py` | MC loop, population, stagnation reboot, jsonl logging |
-| `proposer.py` | OpenRouter LLM calls (OpenAI SDK); fresh + mutate modes; extracts Python code from responses |
-| `evaluator.py` | Executes code, extracts grid from stdout, validates, scores, produces feedback |
-| `executor.py` | Runs LLM-generated Python in a subprocess with timeout |
-| `solver.py` | Uniqueness check, technique-tiered solver (naked/hidden singles, naked pair, locked candidates), budgeted backtracking, 1-10 difficulty rating, `random_solved()` generator |
-| `config.py` | Loads `.env` for OpenRouter API credentials |
+| `proposer.py` | LLM calls (OpenAI SDK via OpenRouter); fresh + mutate modes |
+| `evaluator.py` | Executes code, scores output, produces feedback |
+| `executor.py` | Runs generated Python in an isolated subprocess with timeout |
+| `solver.py` | Sudoku-specific: uniqueness check, technique-tiered solver, difficulty rating (used by evaluator only) |
+| `config.py` | Loads `.env` for API credentials |
 
 ## Key design choices
 
-1. **LLM writes code, not data.** The LLM produces a Python script that
-   generates puzzles, not a raw grid. This makes it a true self-rewriting
-   agent — the artifact being iterated is code, and the LLM learns to
-   write better generation algorithms through feedback.
+1. **LLM writes code, not data.** The artifact being iterated is source
+   code. The LLM learns to write better algorithms through feedback.
 
-2. **Nothing pre-coded.** The generated code must implement everything
-   from scratch: grid generation, validation, solution counting,
-   difficulty heuristics. Only the Python standard library is available.
-   The evaluator (solver.py) is used only by the harness to score output.
+2. **Nothing pre-coded.** Generated code must implement everything from
+   scratch. The evaluator uses its own solver only for scoring.
 
-3. **Isolated execution.** Generated code runs in an isolated temp
-   directory with a 10-second timeout. No project-local modules are
-   importable. Process isolation prevents the LLM code from corrupting
-   the orchestrator's state.
+3. **Isolated execution.** Code runs in an isolated temp directory with
+   a 10-second timeout. No project-local modules are importable.
 
-4. **Incremental fitness tiers.** Fitness rewards progress:
-   code runs (-150 if crash) → grid extracted (-100) → valid (-80) →
-   unique (-50) → on-target (0). This lets the loop recover from
-   broken code through the feedback cycle.
+4. **Incremental fitness tiers.** Fitness rewards progress: code runs
+   → output parsed → valid → unique → on-target. This lets the loop
+   recover from broken code through the feedback cycle.
 
 5. **Stagnation reboot.** If the best doesn't improve for 2 generations,
-   parents are abandoned and a fresh batch is seeded. Best-ever is tracked
-   across reboots.
-
-6. **Budget the solver.** `SolverBudgetExceeded` caps work at 200k nodes
-   and returns a useful "too hard, add clues" signal.
+   parents are abandoned and a fresh batch is seeded.
 
 ## Running
 
@@ -93,229 +80,45 @@ python3 -m venv .venv
 python -u bootstrap.py --target 7 -k 4 --keep 2 --max-gen 8
 ```
 
-Flags:
-
-- `--target` target difficulty 1-10
-- `-k` proposals per generation (MC width)
-- `--keep` parents retained between generations
-- `--max-gen` max generations
-- `--seed` RNG seed
-- `--log` path for the jsonl event log (default `runs/run-{ts}.jsonl`)
-
-Use `python -u` — plain `python` buffers stdout and the progress stream
-won't appear until exit.
+Flags: `--target` (difficulty 1-10), `-k` (proposals per generation),
+`--keep` (parents retained), `--max-gen`, `--seed`, `--log`.
 
 ## Results
 
-All results below use self-contained code generation: the LLM writes
-everything from scratch (grid generation, validation, solution counting)
-using only the Python standard library. No pre-built solver is available.
+All runs target difficulty 7/10, K=4, keep=2, max-gen=8. Generated code
+is fully self-contained (standard library only).
 
-### google/gemini-3.1-flash-lite-preview — self-contained code gen
-
-Target difficulty 7/10, K=4, keep=2, max-gen=8.
-
-Converged at generation 6. Total tokens: 24,826 in + 18,517 out = 43,343.
-
-```
-gen  0 fresh   exec=4/4  valid=4  unique=4  on-target=0  best=diff=6  clues=25  tok=1874+2371   dt=7.4s
-gen  1 mutate  exec=4/4  valid=4  unique=4  on-target=0  best=diff=6  clues=25  tok=4676+2784   dt=15.1s
-gen  2 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=6  clues=25  tok=4674+2643   dt=26.2s
-gen  3 reboot  exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=25  tok=1874+2553   dt=17.8s
-gen  4 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=4926+2895   dt=31.2s
-gen  5 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=4928+2854   dt=18.7s
-gen  6 reboot  exec=4/4  valid=4  unique=4  on-target=1  best=diff=7  clues=25  tok=1874+2417   dt=4.7s
-```
-
-Winning puzzle (difficulty 7/10, 25 clues):
-
-```
-. 5 . | 2 3 . | . 8 7
-. . . | . . 6 | . . .
-. 3 . | 5 4 . | . . 6
----------------------
-9 . 2 | . 6 . | . . .
-. . . | 9 . . | . . 1
-4 6 . | . . . | . . 3
----------------------
-. . 7 | . . . | . 4 .
-6 . 9 | . . 1 | . . .
-8 . . | . 2 . | . . .
-```
-
-### openai/gpt-5-nano — self-contained code gen
-
-Target difficulty 7/10, K=4, keep=2, max-gen=8.
-
-Converged at generation 3. Total tokens: 24,418 in + 134,781 out = 159,199.
-GPT-5 Nano is a reasoning model — output tokens are dominated by hidden
-thinking (~35K out per generation). Produced working code from gen 0 with
-bitmask-based constraint tracking. Iterated difficulty 5 → 5 → 5 → 7.
-
-```
-gen  0 fresh   exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=28  tok=1768+35748   dt=67.5s
-gen  1 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=6970+27406   dt=111.7s
-gen  2 mutate  exec=4/4  valid=4  unique=4  on-target=0  best=diff=5  clues=25  tok=7870+34607   dt=171.6s
-gen  3 mutate  exec=4/4  valid=4  unique=4  on-target=1  best=diff=7  clues=24  tok=7810+37020   dt=119.3s
-```
-
-Winning puzzle (difficulty 7/10, 24 clues):
-
-```
-5 . . | . 8 . | 3 4 .
-. . . | . 5 . | 1 . .
-. . . | 2 . 6 | . . .
----------------------
-. . . | 5 . . | 4 9 .
-. . . | 9 3 . | . . 6
-9 . 8 | . . . | . . 1
----------------------
-. . . | . . 3 | 8 1 .
-4 1 . | . 2 . | 5 . .
-. . . | . . . | . . .
-```
-
-### x-ai/grok-4.1-fast — self-contained code gen
-
-Target difficulty 7/10, K=4, keep=2, max-gen=8.
-
-Converged at generation 7 (reboot). Total tokens: 45,046 in + 227,509 out = 272,555.
-Another reasoning model (~23-32K output tokens per gen). Slow progression
-from difficulty 5 → 6 → 7, finally hit target on a reboot in the last gen.
-
-```
-gen  0 fresh   exec=2/4  valid=2  unique=2  on-target=0  best=diff=5  clues=25  tok=2336+23262   dt=71.6s
-gen  1 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=6992+30344   dt=192.6s
-gen  2 mutate  exec=2/4  valid=2  unique=2  on-target=0  best=diff=5  clues=25  tok=6992+32481   dt=168.6s
-gen  3 reboot  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=2336+27643   dt=84.3s
-gen  4 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=6  clues=25  tok=6998+26099   dt=124.7s
-gen  5 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=6  clues=25  tok=8528+32580   dt=157.3s
-gen  6 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=6  clues=25  tok=8528+31282   dt=187.8s
-gen  7 reboot  exec=3/4  valid=3  unique=3  on-target=1  best=diff=7  clues=24  tok=2336+23818   dt=77.3s
-```
-
-Winning puzzle (difficulty 7/10, 24 clues):
-
-```
-2 . . | . . . | . 8 7
-. 4 . | . 8 . | 9 . .
-3 . . | . 6 . | . . .
----------------------
-. 6 . | . . 4 | 7 5 .
-. . . | . 2 . | . 9 .
-. 9 3 | . . . | 4 . 1
----------------------
-. 3 . | . . . | . . 8
-. . . | 9 5 . | 1 . .
-. . 7 | . . . | . . .
-```
-
-### inclusionai/ling-2.6-flash — self-contained code gen
-
-Target difficulty 7/10, K=4, keep=2, max-gen=8.
-
-Did not converge. Total tokens: 40,746 in + 49,832 out = 90,578.
-True non-reasoning model (~5-8K output tokens per gen). Low exec success
-rate (1-3 out of 4) and could not push past difficulty 5. The model wrote
-correct but basic algorithms without the sophistication needed for harder
-puzzles.
-
-```
-gen  0 fresh   exec=1/4  valid=1  unique=1  on-target=0  best=diff=4  clues=27  tok=2008+5681   dt=30.8s
-gen  1 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=8664+4611   dt=29.7s
-gen  2 mutate  exec=0/4  valid=0  unique=0  on-target=0  best=diff=5  clues=25  tok=6130+8306   dt=59.7s
-gen  3 mutate  exec=2/4  valid=2  unique=2  on-target=0  best=diff=5  clues=25  tok=6130+8860   dt=42.3s
-gen  4 reboot  exec=3/4  valid=3  unique=2  on-target=0  best=diff=5  clues=25  tok=2008+5044   dt=23.0s
-gen  5 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=5  clues=25  tok=6656+5803   dt=28.7s
-gen  6 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=5  clues=25  tok=7142+8144   dt=78.6s
-gen  7 reboot  exec=2/4  valid=2  unique=0  on-target=0  best=NON-UNIQUE     clues=27  tok=2008+3383   dt=28.0s
-```
-
-### moonshotai/kimi-k2.6 — self-contained code gen
-
-Target difficulty 7/10, K=4, keep=2, max-gen=8.
-
-Killed after gen 0 due to excessive token usage. Gen 0 alone consumed
-1,790 in + 38,510 out = 40,300 tokens (mostly extended reasoning) and
-took 601s. The code it generated produced difficulty 10 (too hard) — it
-would have needed further iterations to dial down to 7.
-
-```
-gen  0 fresh   exec=3/4  valid=3  unique=3  on-target=0  best=diff=10  clues=25  tok=1790+38510  dt=601.1s
-(killed — token budget exceeded)
-```
-
-### google/gemini-3.1-flash-lite-preview — v1 data-generation mode
-
-Target difficulty 7/10, K=6, keep=2, max-gen=8.
-
-The original v1 architecture had the LLM directly output puzzle grids
-(masking a seed solved grid). Reached max generations without hitting
-target. Best puzzle found at generation 4: difficulty 3/10, 33 clues.
-
-```
-gen  0 fresh   valid=6/6  unique=0  on-target=0  best=NON-UNIQUE  fit=-50  clues=21
-gen  1 mutate  valid=6/6  unique=0  on-target=0  best=NON-UNIQUE  fit=-50  clues=21
-gen  2 mutate  valid=6/6  unique=0  on-target=0  best=NON-UNIQUE  fit=-50  clues=21
-gen  3 reboot  valid=6/6  unique=0  on-target=0  best=NON-UNIQUE  fit=-50  clues=22
-gen  4 mutate  valid=6/6  unique=1  on-target=0  best=diff=3  clues=33  fit=-4
-gen  5 mutate  valid=6/6  unique=1  on-target=0  best=diff=3  clues=33  fit=-4
-gen  6 mutate  valid=6/6  unique=0  on-target=0  best=diff=3  clues=33  fit=-4
-gen  7 reboot  valid=6/6  unique=0  on-target=0  best=NON-UNIQUE  fit=-50  clues=22
-```
-
-Best puzzle (difficulty 3/10, 33 clues, solved with naked singles only):
-
-```
-4 . 3 | . . 6 | 7 . .
-. 1 . | 7 . . | . 4 3
-7 . . | . 5 . | 6 . .
----------------------
-9 . . | 5 . 1 | . . 7
-. 8 . | . 2 . | . 3 .
-5 . . | 9 . 3 | . . 6
----------------------
-. . 1 | . 3 . | . . 4
-8 6 . | . . 5 | . 9 .
-. . 9 | . . 2 | 8 . 1
-```
-
-### Comparison
-
-| Mode | Model | Target | Result | Gens | Total Tokens | Time |
-|---|---|---|---|---|---|---|
-| v1 (grid data) | gemini-flash-lite | 7 | Failed (best: 3) | 8 (max) | n/a | ~24s |
-| v2 (code, w/ solver) | gemini-flash-lite | 7 | Converged (7) | 2 | ~12K | ~30s |
-| v2 (code, w/ solver) | kimi-k2.6 | 7 | Converged (7) | 0 | ~40K | ~491s |
-| v3 (self-contained) | openai/gpt-oss-20b | 7 | Converged (7) | 0 | 9,422 |
-| v3 (self-contained) | gemma-4-26b | 7 | Converged (7) | 4 | 42,456 |
-| v3 (self-contained) | gemini-flash-lite | 7 | Converged (7) | 6 | 43,343 |
-| v3 (self-contained) | qwen/qwen-turbo | 7 | Converged (7) | 7 | 61,450 |
-| v3 (self-contained) | gpt-5-nano | 7 | Converged (7) | 3 | 159,199 |
-| v3 (self-contained) | grok-4.1-fast | 7 | Converged (7) | 7 | 272,555 |
-| v3 (self-contained) | ling-2.6-flash | 7 | Failed (best: 5) | 8 (max) | 90,578 |
-| v3 (self-contained) | liquid/lfm-2-24b | 7 | Failed (best: 3) | 8 (max) | 74,335 |
-| v3 (self-contained) | amazon/nova-micro | 7 | Failed (best: 1) | 8 (max) | 54,378 |
-| v3 (self-contained) | mistralai/mistral-nemo | 7 | Failed (best: 0) | 8 (max) | 51,231 |
-| v3 (self-contained) | ibm-granite/granite-micro | 7 | Failed (best: 0) | 8 (max) | 48,549 |
-| v3 (self-contained) | kimi-k2.6 | 7 | Killed (best: 10) | 0 | 40,300+ |
+| Model | Result | Gens | Total Tokens |
+|---|---|---|---|
+| openai/gpt-oss-20b | Converged (7) | 0 | 9,422 |
+| google/gemma-4-26b-a4b-it | Converged (7) | 4 | 42,456 |
+| google/gemini-3.1-flash-lite | Converged (7) | 6 | 43,343 |
+| qwen/qwen-turbo | Converged (7) | 7 | 61,450 |
+| openai/gpt-5-nano | Converged (7) | 3 | 159,199 |
+| x-ai/grok-4.1-fast | Converged (7) | 7 | 272,555 |
+| inclusionai/ling-2.6-flash | Failed (best: 5) | 8 | 90,578 |
+| liquid/lfm-2-24b-a2b | Failed (best: 3) | 8 | 74,335 |
+| amazon/nova-micro-v1 | Failed (best: 1) | 8 | 54,378 |
+| mistralai/mistral-nemo | Failed (best: 0) | 8 | 51,231 |
+| ibm-granite/granite-4.0-h-micro | Failed (best: 0) | 8 | 48,549 |
+| moonshotai/kimi-k2.6 | Killed (best: 10) | 0 | 40,300+ |
 
 Key findings:
-- **GPT-OSS-20B is the champion**: converged gen 0 with only 9K tokens — non-reasoning, fast, efficient
-- Gemma 4 26B is the second best non-reasoning model: 42K tokens, gen 4
-- Reasoning models (gpt-5-nano, grok, kimi) use 15-35K output tokens per gen (hidden thinking)
-- Many small/cheap models fail entirely — never produce valid Sudoku code
-- The difficulty-5-to-7 gap is the hardest: most models plateau at difficulty 5-6
+
+- **GPT-OSS-20B** converged on the first generation with only 9K tokens
+- Non-reasoning models (gemma-4, gemini-flash-lite) are the most
+  token-efficient when they converge
+- Reasoning models (gpt-5-nano, grok, kimi) use 15-35K output tokens
+  per generation due to hidden thinking — expensive for iterative loops
+- Many small/cheap models fail entirely — they cannot write correct
+  self-contained Sudoku solvers
+- The difficulty 5→7 gap is the hardest barrier: models plateau at 5-6
 
 ## Honest limitations
 
 - Convergence is probabilistic. Results vary between runs.
-- The difficulty rating is a hand-picked ladder (naked_single →
-  hidden_single → locked_candidates → naked_pair → backtrack). It's
-  not the same as any published rating, but it's internally consistent.
+- The difficulty rating is a hand-picked ladder, not a published standard.
 - Generated code runs in an isolated temp dir with a timeout, but
   without network or filesystem sandboxing.
 - Reasoning models produce better first-attempt code but consume
-  15-30x more tokens per generation due to extended thinking.
-- Small non-reasoning models (ling-2.6-flash) are token-efficient but
-  lack the code quality to iterate past difficulty 5.
+  15-30x more tokens per generation.
