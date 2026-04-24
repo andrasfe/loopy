@@ -175,6 +175,62 @@ Winning puzzle (difficulty 7/10, 24 clues):
 . . . | . . . | . . .
 ```
 
+### x-ai/grok-4.1-fast — self-contained code gen
+
+Target difficulty 7/10, K=4, keep=2, max-gen=8.
+
+Converged at generation 7 (reboot). Total tokens: 45,046 in + 227,509 out = 272,555.
+Another reasoning model (~23-32K output tokens per gen). Slow progression
+from difficulty 5 → 6 → 7, finally hit target on a reboot in the last gen.
+
+```
+gen  0 fresh   exec=2/4  valid=2  unique=2  on-target=0  best=diff=5  clues=25  tok=2336+23262   dt=71.6s
+gen  1 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=6992+30344   dt=192.6s
+gen  2 mutate  exec=2/4  valid=2  unique=2  on-target=0  best=diff=5  clues=25  tok=6992+32481   dt=168.6s
+gen  3 reboot  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=2336+27643   dt=84.3s
+gen  4 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=6  clues=25  tok=6998+26099   dt=124.7s
+gen  5 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=6  clues=25  tok=8528+32580   dt=157.3s
+gen  6 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=6  clues=25  tok=8528+31282   dt=187.8s
+gen  7 reboot  exec=3/4  valid=3  unique=3  on-target=1  best=diff=7  clues=24  tok=2336+23818   dt=77.3s
+```
+
+Winning puzzle (difficulty 7/10, 24 clues):
+
+```
+2 . . | . . . | . 8 7
+. 4 . | . 8 . | 9 . .
+3 . . | . 6 . | . . .
+---------------------
+. 6 . | . . 4 | 7 5 .
+. . . | . 2 . | . 9 .
+. 9 3 | . . . | 4 . 1
+---------------------
+. 3 . | . . . | . . 8
+. . . | 9 5 . | 1 . .
+. . 7 | . . . | . . .
+```
+
+### inclusionai/ling-2.6-flash — self-contained code gen
+
+Target difficulty 7/10, K=4, keep=2, max-gen=8.
+
+Did not converge. Total tokens: 40,746 in + 49,832 out = 90,578.
+True non-reasoning model (~5-8K output tokens per gen). Low exec success
+rate (1-3 out of 4) and could not push past difficulty 5. The model wrote
+correct but basic algorithms without the sophistication needed for harder
+puzzles.
+
+```
+gen  0 fresh   exec=1/4  valid=1  unique=1  on-target=0  best=diff=4  clues=27  tok=2008+5681   dt=30.8s
+gen  1 mutate  exec=3/4  valid=3  unique=3  on-target=0  best=diff=5  clues=25  tok=8664+4611   dt=29.7s
+gen  2 mutate  exec=0/4  valid=0  unique=0  on-target=0  best=diff=5  clues=25  tok=6130+8306   dt=59.7s
+gen  3 mutate  exec=2/4  valid=2  unique=2  on-target=0  best=diff=5  clues=25  tok=6130+8860   dt=42.3s
+gen  4 reboot  exec=3/4  valid=3  unique=2  on-target=0  best=diff=5  clues=25  tok=2008+5044   dt=23.0s
+gen  5 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=5  clues=25  tok=6656+5803   dt=28.7s
+gen  6 mutate  exec=1/4  valid=1  unique=1  on-target=0  best=diff=5  clues=25  tok=7142+8144   dt=78.6s
+gen  7 reboot  exec=2/4  valid=2  unique=0  on-target=0  best=NON-UNIQUE     clues=27  tok=2008+3383   dt=28.0s
+```
+
 ### moonshotai/kimi-k2.6 — self-contained code gen
 
 Target difficulty 7/10, K=4, keep=2, max-gen=8.
@@ -233,13 +289,16 @@ Best puzzle (difficulty 3/10, 33 clues, solved with naked singles only):
 | v2 (code, w/ solver) | kimi-k2.6 | 7 | Converged (7) | 0 | ~40K | ~491s |
 | v3 (self-contained) | gemini-flash-lite | 7 | Converged (7) | 6 | 43,343 | ~121s |
 | v3 (self-contained) | gpt-5-nano | 7 | Converged (7) | 3 | 159,199 | ~470s |
+| v3 (self-contained) | grok-4.1-fast | 7 | Converged (7) | 7 | 272,555 | ~1018s |
+| v3 (self-contained) | ling-2.6-flash | 7 | Failed (best: 5) | 8 (max) | 90,578 | ~321s |
 | v3 (self-contained) | kimi-k2.6 | 7 | Killed (best: 10) | 0 | 40,300+ | 601s+ |
 
 Key findings:
 - Self-contained mode (v3) is harder — gemini needed 6 gens vs 2 with solver access
-- Reasoning models (gpt-5-nano, kimi-k2.6) use 15-35K output tokens per gen (hidden thinking)
-- Gemini flash-lite is the most token-efficient: 43K total vs gpt-5-nano's 159K
-- GPT-5 Nano converges faster (3 gens vs 6) but at ~4x the token cost
+- Gemini flash-lite is the most token-efficient: 43K total to converge
+- Reasoning models (gpt-5-nano, grok, kimi) use 15-35K output tokens per gen (hidden thinking)
+- Grok 4.1 Fast converges but at 6x the token cost of gemini (272K vs 43K)
+- Non-reasoning models that are too small (ling-2.6-flash) can't push past difficulty 5
 
 ## Honest limitations
 
@@ -249,5 +308,7 @@ Key findings:
   not the same as any published rating, but it's internally consistent.
 - Generated code runs in an isolated temp dir with a timeout, but
   without network or filesystem sandboxing.
-- Reasoning models (kimi-k2.6) produce better first-attempt code but
-  consume 15x more tokens per generation due to extended thinking.
+- Reasoning models produce better first-attempt code but consume
+  15-30x more tokens per generation due to extended thinking.
+- Small non-reasoning models (ling-2.6-flash) are token-efficient but
+  lack the code quality to iterate past difficulty 5.
