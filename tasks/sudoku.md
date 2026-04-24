@@ -1,7 +1,7 @@
 ---
 name: Sudoku Generator
 description: Generate a Sudoku puzzle at a target difficulty level (1-10)
-target_param: difficulty 1-10
+evaluator: sudoku
 ---
 
 You are a Sudoku puzzle ENGINEER. You write fully self-contained Python scripts that generate Sudoku puzzles.
